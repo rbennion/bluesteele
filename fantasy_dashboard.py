@@ -16,6 +16,7 @@ import numpy as np
 import os
 import subprocess
 import sys
+import base64
 from typing import Dict, List, Tuple
 
 
@@ -123,26 +124,9 @@ def load_gif_as_base64(gif_path: str) -> str:
         return ""
 
 def ensure_database_exists():
-    """Ensure the database exists, create it if it doesn't."""
-    if not os.path.exists('fantasy_auction.db'):
-        st.info("🔄 Creating database from CSV data... This may take a moment.")
-        try:
-            # Run the database creation script
-            result = subprocess.run([sys.executable, 'create_fantasy_database.py'], 
-                                  capture_output=True, text=True, check=True)
-            st.success("✅ Database created successfully!")
-            # Show some basic stats
-            lines = result.stdout.split('\n')
-            for line in lines:
-                if 'Total records imported:' in line or 'Years covered:' in line:
-                    st.info(line.strip())
-        except subprocess.CalledProcessError as e:
-            st.error(f"❌ Error creating database: {e}")
-            st.error(f"Error details: {e.stderr}")
-            raise
-        except Exception as e:
-            st.error(f"❌ Unexpected error creating database: {e}")
-            raise
+    """Ensure the database exists. For Cloud we ship the DB in Git."""
+    # No creation here; app.py handles creation for local, and Cloud uses committed DB
+    return
 
 def load_data():
     """Load data from SQLite database."""

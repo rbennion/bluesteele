@@ -213,9 +213,10 @@ def print_summary(conn: sqlite3.Connection):
 
 def main():
     """Main function to create database and import data."""
-    # File paths
-    csv_path = "/Users/rbennion/Documents/lutwak-blue-steele/data/WSOFF through 2024 Raw Data.csv"
-    db_path = "/Users/rbennion/Documents/lutwak-blue-steele/fantasy_auction.db"
+    # File paths (repo-relative)
+    root_dir = os.path.dirname(__file__)
+    csv_path = os.path.join(root_dir, "data", "WSOFF through 2024 Raw Data.csv")
+    db_path = os.path.join(root_dir, "fantasy_auction.db")
     
     print("Creating Fantasy Football Auction Database...")
     print(f"Reading data from: {csv_path}")
