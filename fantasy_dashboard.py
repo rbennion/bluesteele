@@ -467,6 +467,16 @@ def create_volatility_analysis(df: pd.DataFrame):
     
     volatility_df = pd.DataFrame(volatility_data)
     
+    if volatility_df.empty:
+        # Return empty figure if no data
+        fig = px.scatter(title='Position Tier Volatility Analysis - No Data Available')
+        fig.add_annotation(
+            text="No sufficient data for volatility analysis<br>Need multiple years of data per tier",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            showarrow=False, font_size=16
+        )
+        return fig
+    
     fig = px.scatter(
         volatility_df,
         x='mean_value',
