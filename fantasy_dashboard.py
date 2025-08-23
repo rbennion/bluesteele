@@ -17,7 +17,11 @@ import os
 import subprocess
 import sys
 import base64
+import re
 from typing import Dict, List, Tuple
+
+# App version
+VERSION = "1.3"
 
 
 # Page configuration
@@ -28,9 +32,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Auto-refresh configuration to keep dashboard always visible
+# App style overrides
 st.markdown("""
-<meta http-equiv="refresh" content="300">
 <style>
     .main .block-container {
         max-width: 100%;
@@ -44,13 +47,7 @@ st.markdown("""
     .stApp {
         background-color: #f0f2f6;
     }
-    /* Remove default streamlit padding */
-    .css-1d391kg {
-        padding-top: 0rem;
-    }
-    .css-18e3th9 {
-        padding-top: 0rem;
-    }
+    /* Minimal padding adjustments */
     /* Remove top padding from main container */
     .main > div:first-child {
         padding-top: 0rem !important;
@@ -539,557 +536,152 @@ def main():
         st.error("No data available. Please ensure the database file exists.")
         return
     
-    # Sidebar controls
-    st.sidebar.header("📊 Dashboard Controls")
-    
-    # Year range selector with more options
+    # In-page controls (top control bar)
     years = sorted(df['year'].unique())
-    
-    st.sidebar.subheader("📅 Year Selection")
-    
-    # Quick year presets
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        if st.button("Recent 3 Years", use_container_width=True):
-            st.session_state.year_range = (max(years) - 2, max(years))
-    with col2:
-        if st.button("Recent 5 Years", use_container_width=True):
-            st.session_state.year_range = (max(years) - 4, max(years))
-    
-    col3, col4 = st.sidebar.columns(2)
-    with col3:
-        if st.button("All Years", use_container_width=True):
-            st.session_state.year_range = (min(years), max(years))
-    with col4:
-        if st.button("2020+", use_container_width=True):
-            st.session_state.year_range = (2020, max(years))
-    
-    # Initialize session state if not exists
     if 'year_range' not in st.session_state:
         st.session_state.year_range = (min(years), max(years))
-    
-    # Year range slider
-    year_range = st.sidebar.slider(
-        "Custom Year Range",
-        min_value=min(years),
-        max_value=max(years),
-        value=st.session_state.year_range,
-        step=1,
-        help="Drag to select custom year range for analysis"
-    )
-    
-    # Update session state
-    st.session_state.year_range = year_range
-    
-    # Show selected range prominently
-    st.sidebar.info(f"**Analyzing:** {year_range[0]} - {year_range[1]} ({year_range[1] - year_range[0] + 1} years)")
-    
-    # Position selector
+
     positions = sorted(df['position'].unique())
-    selected_positions = st.sidebar.multiselect(
-        "Select Positions",
-        positions,
-        default=positions  # Show all positions by default
-    )
-    
-    # Maximum tier selector
-    max_tier = st.sidebar.slider(
-        "Maximum Tier to Display",
-        min_value=1,
-        max_value=15,
-        value=5,
-        step=1
-    )
-    
-    # Filter data based on selections
-    filtered_df = df[
-        (df['year'] >= year_range[0]) & 
-        (df['year'] <= year_range[1]) &
-        (df['position'].isin(selected_positions))
-    ]
-    
-    st.markdown("---")
-    
-    # Main charts
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📈 Trends Over Time", 
-        "📊 Position Comparison", 
-        "🔥 Tier Analysis", 
-        "📉 Value Dropoffs",
-        "⚡ Volatility Analysis",
-        "⏱️ Period Comparison"
-    ])
-    
-    with tab1:
-        st.header("Position Tier Trends Over Time")
-        
-        if not filtered_df.empty:
-            # Average values summary table - FIRST CHART
-            st.subheader(f"📊 Average Auction Values ({year_range[0]}-{year_range[1]})")
-            
-            # Calculate averages for the selected time period
-            avg_data = filtered_df[filtered_df['position_rank'] <= max_tier].groupby(
-                ['position', 'position_rank']
-            )['auction_value_dollars'].agg(['mean', 'min', 'max', 'count']).round(2)
-            
-            # Create a clean summary table - respects the max_tier slider
-            summary_data = []
-            for position in selected_positions:
-                for rank in range(1, max_tier + 1):  # Use exactly the slider value
-                    if (position, rank) in avg_data.index:
-                        row_data = avg_data.loc[(position, rank)]
-                        summary_data.append({
-                            'Position Tier': f"{position}{rank}",
-                            'Average ($)': f"${row_data['mean']:.0f}",
-                            'Min ($)': f"${row_data['min']:.0f}",
-                            'Max ($)': f"${row_data['max']:.0f}",
-                            'Years': int(row_data['count'])
-                        })
-            
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                
-                # Display as an interactive table with highlighting
-                st.dataframe(
-                    summary_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Position Tier": st.column_config.TextColumn("Position Tier", width="medium"),
-                        "Average ($)": st.column_config.TextColumn("Average ($)", width="medium"),
-                        "Min ($)": st.column_config.TextColumn("Min ($)", width="small"),
-                        "Max ($)": st.column_config.TextColumn("Max ($)", width="small"),
-                        "Years": st.column_config.NumberColumn("Years", width="small")
-                    }
-                )
-                
-                # Add some quick insights - find the actual highest value
-                # Convert to numeric for proper sorting
-                summary_df['avg_numeric'] = summary_df['Average ($)'].str.replace('$', '').str.replace(',', '').astype(float)
-                highest_tier = summary_df.loc[summary_df['avg_numeric'].idxmax()]
-                
-                st.info(f"💡 **Quick Insight:** In your selected period, the highest average was {highest_tier['Position Tier']} at {highest_tier['Average ($)']} across {highest_tier['Years']} years.")
-            
-            st.markdown("---")
-            
-            # Create a much more useful bar chart showing averages
-            st.subheader("📊 Average Values by Position Tier")
-            
-            # Calculate averages for bar chart
-            chart_data = filtered_df[filtered_df['position_rank'] <= max_tier].groupby(
-                'tier_label'
-            )['auction_value_dollars'].mean().reset_index()
-            
-            # Sort by average value (highest first)
-            chart_data = chart_data.sort_values('auction_value_dollars', ascending=False)
-            
-            # Create clean bar chart
-            fig = px.bar(
-                chart_data,
-                x='tier_label',
-                y='auction_value_dollars',
-                title=f'Average Auction Values by Position Tier ({year_range[0]}-{year_range[1]})',
-                labels={
-                    'auction_value_dollars': 'Average Auction Value ($)',
-                    'tier_label': 'Position Tier'
-                },
-                color='auction_value_dollars',
-                color_continuous_scale='Blues',
-                height=500
-            )
-            
-            # Format the chart
-            fig.update_layout(
-                xaxis=dict(
-                    title_font=dict(size=14),
-                    tickfont=dict(size=12),
-                    tickangle=45
-                ),
-                yaxis=dict(
-                    tickformat='$,.0f',
-                    title_font=dict(size=14),
-                    tickfont=dict(size=12)
-                ),
-                title=dict(
-                    font=dict(size=16),
-                    x=0.5,
-                    xanchor='center'
-                ),
-                showlegend=False,
-                plot_bgcolor='white',
-                paper_bgcolor='white'
-            )
-            
-            # Add value labels on bars
-            for i, row in chart_data.iterrows():
-                fig.add_annotation(
-                    x=row['tier_label'],
-                    y=row['auction_value_dollars'],
-                    text=f"${row['auction_value_dollars']:.0f}",
-                    showarrow=False,
-                    yshift=10,
-                    font=dict(size=12, color='black')
-                )
-            
-            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.info("💡 **This chart shows the average auction value for each position tier over your selected time period. Higher bars = more expensive tiers.**")
-            
-            # Data table
-            st.subheader("Detailed Trend Data")
-            trend_data = filtered_df[filtered_df['position_rank'] <= max_tier].pivot_table(
-                values='auction_value_dollars',
-                index='tier_label',
-                columns='year',
-                aggfunc='mean'
-            ).round(2)
-            st.dataframe(trend_data, use_container_width=True)
-        else:
-            st.warning("No data available for selected filters.")
-    
-    with tab2:
-        st.header("Position Comparison Analysis")
-        
-        if not filtered_df.empty:
-            # Add visualization options
-            viz_option = st.radio(
-                "Choose visualization:",
-                ["📊 Heatmap (Position vs Tiers)", "📈 Line Chart (Tiers Over Time)", "📋 Summary Table"],
-                horizontal=True
-            )
-            
-            if viz_option == "📊 Heatmap (Position vs Tiers)":
-                selected_years = list(range(year_range[0], year_range[1] + 1))
-                heatmap = create_position_comparison_heatmap(filtered_df, selected_years)
-                st.plotly_chart(heatmap, use_container_width=True)
-                
-                st.info("This heatmap shows average auction values by position and tier for your selected time period. Darker colors = higher values.")
-            
-            elif viz_option == "📈 Line Chart (Tiers Over Time)":
-                # Create line chart showing top tiers over time
-                top_tiers_df = filtered_df[
-                    (filtered_df['position_rank'] == 1) & 
-                    (filtered_df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                ]
-                
-                if not top_tiers_df.empty:
-                    fig = px.line(
-                        top_tiers_df,
-                        x='year',
-                        y='auction_value_dollars',
-                        color='position',
-                        title='Top Tier (Rank 1) Position Values Over Time',
-                        labels={
-                            'auction_value_dollars': 'Auction Value ($)',
-                            'year': 'Year',
-                            'position': 'Position'
-                        }
-                    )
-                    
-                    fig.update_traces(mode='lines+markers', line=dict(width=3), marker=dict(size=8))
-                    fig.update_layout(
-                        yaxis=dict(tickformat='$,.0f'),
-                        xaxis=dict(tickmode='linear', dtick=1),
-                        height=500
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Show tier comparison for each position
-                    st.subheader("Position 1st vs 2nd vs 3rd Tier Comparison")
-                    comparison_df = filtered_df[
-                        (filtered_df['position_rank'] <= 3) &
-                        (filtered_df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                    ]
-                    
-                    avg_by_tier = comparison_df.groupby(['position', 'position_rank'])['auction_value_dollars'].mean().reset_index()
-                    
-                    fig2 = px.bar(
-                        avg_by_tier,
-                        x='position',
-                        y='auction_value_dollars',
-                        color='position_rank',
-                        title='Average Values: Top 3 Tiers by Position',
-                        labels={
-                            'auction_value_dollars': 'Average Auction Value ($)',
-                            'position': 'Position',
-                            'position_rank': 'Tier'
-                        },
-                        color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c']
-                    )
-                    
-                    fig2.update_layout(
-                        yaxis=dict(tickformat='$,.0f'),
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig2, use_container_width=True)
-                else:
-                    st.warning("No data available for line chart visualization.")
-            
-            else:  # Summary Table
-                st.subheader("Position Tier Summary Statistics")
-                comparison_data = filtered_df[filtered_df['position_rank'] <= 8].groupby(
-                    ['position', 'position_rank']
-                )['auction_value_dollars'].agg(['count', 'mean', 'std', 'min', 'max']).round(2)
-                
-                comparison_data.columns = ['Sample Size', 'Average ($)', 'Std Dev ($)', 'Min ($)', 'Max ($)']
-                comparison_data = comparison_data.reset_index()
-                comparison_data['Tier'] = comparison_data['position'] + comparison_data['position_rank'].astype(str)
-                
-                # Pivot for better display
-                display_df = comparison_data.pivot(index='Tier', columns='position', values='Average ($)')
-                st.dataframe(display_df, use_container_width=True)
-                
-                # Show detailed stats
-                st.subheader("Detailed Statistics")
-                st.dataframe(comparison_data[['Tier', 'Sample Size', 'Average ($)', 'Std Dev ($)', 'Min ($)', 'Max ($)']], use_container_width=True, hide_index=True)
-        else:
-            st.warning("No data available for selected filters.")
-    
-    with tab3:
-        st.header("Individual Position Tier Analysis")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            analysis_position = st.selectbox(
-                "Select Position for Analysis",
-                selected_positions if selected_positions else positions
-            )
-        
-        with col2:
-            analysis_year = st.selectbox(
-                "Select Year for Analysis",
-                sorted(filtered_df['year'].unique(), reverse=True)
-            )
-        
-        if analysis_position and analysis_year:
-            tier_chart = create_tier_comparison_chart(filtered_df, analysis_position, analysis_year)
-            st.plotly_chart(tier_chart, use_container_width=True)
-            
-            # Show tier data for selected position/year
-            tier_data = filtered_df[
-                (filtered_df['position'] == analysis_position) & 
-                (filtered_df['year'] == analysis_year)
-            ][['tier_label', 'auction_value_dollars']].sort_values('auction_value_dollars', ascending=False)
-            
-            st.subheader(f"{analysis_position} Tiers - {analysis_year}")
-            st.dataframe(tier_data, use_container_width=True, hide_index=True)
-    
-    with tab4:
-        st.header("Value Dropoff Analysis")
-        
-        dropoff_position = st.selectbox(
-            "Select Position for Dropoff Analysis",
-            selected_positions if selected_positions else positions,
-            key="dropoff_position"
+
+    st.markdown("### 📊 Controls")
+    c1, c2, c3, c4 = st.columns([1.6, 1.4, 1.4, 1.2])
+
+    with c1:
+        st.write("Year Range")
+        year_range = st.slider(
+            "",
+            min_value=min(years),
+            max_value=max(years),
+            value=st.session_state.year_range,
+            step=1,
+            label_visibility="collapsed"
         )
-        
-        if dropoff_position:
-            dropoff_chart = create_value_dropoff_chart(filtered_df, dropoff_position)
-            st.plotly_chart(dropoff_chart, use_container_width=True)
-            
-            # Calculate and display dropoff statistics
-            position_data = filtered_df[
-                (filtered_df['position'] == dropoff_position) & 
-                (filtered_df['position_rank'] <= 10)
-            ].groupby('position_rank')['auction_value_dollars'].mean().reset_index()
-            
-            position_data['dropoff'] = position_data['auction_value_dollars'].diff() * -1
-            position_data['dropoff_pct'] = (position_data['dropoff'] / position_data['auction_value_dollars'].shift(1)) * 100
-            
-            st.subheader(f"{dropoff_position} Dropoff Statistics")
-            display_data = position_data[['position_rank', 'auction_value_dollars', 'dropoff', 'dropoff_pct']].copy()
-            display_data.columns = ['Tier', 'Avg Value ($)', 'Dropoff ($)', 'Dropoff (%)']
-            display_data = display_data.round(2)
-            st.dataframe(display_data, use_container_width=True, hide_index=True)
-    
-    with tab5:
-        st.header("Price Volatility Analysis")
-        st.write("This chart shows how volatile each position tier's pricing has been over time.")
-        
-        volatility_chart = create_volatility_analysis(filtered_df)
-        st.plotly_chart(volatility_chart, use_container_width=True)
-        
-        st.info("""
-        **Interpretation:**
-        - **X-axis**: Average auction value across all years
-        - **Y-axis**: Coefficient of variation (higher = more volatile pricing)
-        - **Bubble size**: Position tier (larger = lower tier)
-        - **Color**: Position type
-        
-        Players in the top-right have high value AND high volatility (boom/bust).
-        Players in the bottom-left have low value AND low volatility (consistent role players).
-        """)
-    
-    with tab6:
-        st.header("Period Comparison Analysis")
-        st.write(f"Compare your selected period ({year_range[0]}-{year_range[1]}) with other periods")
-        
-        # Period comparison controls
-        comp_col1, comp_col2 = st.columns(2)
-        
-        with comp_col1:
-            st.subheader("🎯 Your Selected Period")
-            st.write(f"**Years:** {year_range[0]} - {year_range[1]}")
-            st.write(f"**Duration:** {year_range[1] - year_range[0] + 1} years")
-            
-            # Calculate averages for selected period
-            selected_period_data = filtered_df[
-                (filtered_df['position_rank'] <= 5) &
-                (filtered_df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-            ].groupby(['position', 'tier_label'])['auction_value_dollars'].mean().reset_index()
-            
-            st.dataframe(
-                selected_period_data.pivot(index='tier_label', columns='position', values='auction_value_dollars').round(2),
-                use_container_width=True
-            )
-        
-        with comp_col2:
-            comparison_period = st.selectbox(
-                "Compare with:",
-                [
-                    "All Other Years",
-                    "Pre-2020 (2014-2019)", 
-                    "Post-2020 (2020-2024)",
-                    "Early Years (2014-2018)",
-                    "Recent Years (2019-2024)"
-                ]
-            )
-            
-            # Calculate comparison data based on selection
-            if comparison_period == "All Other Years":
-                comp_data = df[
-                    ~((df['year'] >= year_range[0]) & (df['year'] <= year_range[1])) &
-                    (df['position_rank'] <= 5) &
-                    (df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                ]
-                comp_label = f"All years except {year_range[0]}-{year_range[1]}"
-            elif comparison_period == "Pre-2020 (2014-2019)":
-                comp_data = df[
-                    (df['year'] < 2020) &
-                    (df['position_rank'] <= 5) &
-                    (df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                ]
-                comp_label = "2014-2019"
-            elif comparison_period == "Post-2020 (2020-2024)":
-                comp_data = df[
-                    (df['year'] >= 2020) &
-                    (df['position_rank'] <= 5) &
-                    (df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                ]
-                comp_label = "2020-2024"
-            elif comparison_period == "Early Years (2014-2018)":
-                comp_data = df[
-                    (df['year'] <= 2018) &
-                    (df['position_rank'] <= 5) &
-                    (df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                ]
-                comp_label = "2014-2018"
-            else:  # Recent Years (2019-2024)
-                comp_data = df[
-                    (df['year'] >= 2019) &
-                    (df['position_rank'] <= 5) &
-                    (df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-                ]
-                comp_label = "2019-2024"
-            
-            st.subheader("📊 Comparison Period")
-            st.write(f"**Period:** {comp_label}")
-            
-            if not comp_data.empty:
-                comparison_summary = comp_data.groupby(['position', 'tier_label'])['auction_value_dollars'].mean().reset_index()
-                
-                st.dataframe(
-                    comparison_summary.pivot(index='tier_label', columns='position', values='auction_value_dollars').round(2),
-                    use_container_width=True
-                )
-        
-        # Difference analysis
-        if not filtered_df.empty and not comp_data.empty:
-            st.subheader("📈 Price Differences")
-            
-            # Merge the data for comparison
-            selected_summary = filtered_df[
-                (filtered_df['position_rank'] <= 5) &
-                (filtered_df['position'].isin(['QB', 'RB', 'WR', 'TE']))
-            ].groupby('tier_label')['auction_value_dollars'].mean()
-            
-            comparison_summary_series = comp_data.groupby('tier_label')['auction_value_dollars'].mean()
-            
-            # Calculate differences
-            diff_data = []
-            for tier in selected_summary.index:
-                if tier in comparison_summary_series.index:
-                    selected_val = selected_summary[tier]
-                    comp_val = comparison_summary_series[tier]
-                    diff_data.append({
-                        'Tier': tier,
-                        'Your Period': f"${selected_val:.0f}",
-                        'Comparison': f"${comp_val:.0f}",
-                        'Difference': f"${selected_val - comp_val:+.0f}",
-                        'Percent Change': f"{((selected_val / comp_val - 1) * 100):+.1f}%"
-                    })
-            
-            if diff_data:
-                diff_df = pd.DataFrame(diff_data)
-                st.dataframe(diff_df, use_container_width=True, hide_index=True)
-                
-                # Visualization of differences
-                fig = px.bar(
-                    diff_df,
-                    x='Tier',
-                    y=[float(x.replace('$', '').replace('+', '').replace(',', '')) for x in diff_df['Difference']],
-                    title=f"Price Differences: {year_range[0]}-{year_range[1]} vs {comp_label}",
-                    labels={'y': 'Price Difference ($)'},
-                    color=[float(x.replace('$', '').replace('+', '').replace(',', '')) for x in diff_df['Difference']],
-                    color_continuous_scale='RdBu'
-                )
-                
-                fig.update_layout(
-                    yaxis=dict(tickformat='$,.0f'),
-                    showlegend=False,
-                    height=400
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Summary insights
-                positive_changes = sum(1 for x in diff_df['Difference'] if float(x.replace('$', '').replace('+', '').replace(',', '')) > 0)
-                total_changes = len(diff_df)
-                
-                if positive_changes > total_changes / 2:
-                    trend = "📈 Higher"
-                    color = "green"
-                elif positive_changes < total_changes / 2:
-                    trend = "📉 Lower"
-                    color = "red"
-                else:
-                    trend = "➡️ Similar"
-                    color = "blue"
-                
-                st.info(f"""
-                **Summary:** Your selected period ({year_range[0]}-{year_range[1]}) shows **{trend}** auction values compared to {comp_label}.
-                
-                - **{positive_changes} out of {total_changes}** position tiers cost more in your selected period
-                - This suggests auction values were {'higher' if positive_changes > total_changes/2 else 'lower' if positive_changes < total_changes/2 else 'similar'} during {year_range[0]}-{year_range[1]}
-                """)
-            else:
-                st.warning("No overlapping tiers found for comparison.")
-        else:
-            st.warning("No data available for selected comparison period.")
+        st.session_state.year_range = year_range
+    with c2:
+        st.write("Quick Presets")
+        p1, p2 = st.columns(2)
+        if p1.button("Recent 3"):
+            st.session_state.year_range = (max(years) - 2, max(years))
+            year_range = st.session_state.year_range
+        if p2.button("Recent 5"):
+            st.session_state.year_range = (max(years) - 4, max(years))
+            year_range = st.session_state.year_range
+    with c3:
+        st.write("More Presets")
+        p3, p4 = st.columns(2)
+        if p3.button("All"):
+            st.session_state.year_range = (min(years), max(years))
+            year_range = st.session_state.year_range
+        if p4.button("2020+"):
+            st.session_state.year_range = (2020, max(years))
+            year_range = st.session_state.year_range
+    with c4:
+        max_tier = st.slider("Max Tier", 1, 15, 5)
+
+    st.caption(f"Analyzing: {year_range[0]}–{year_range[1]} ({year_range[1] - year_range[0] + 1} years)")
+
+    # Filter by year only for now; choose positions in-section
+    year_filtered_df = df[
+        (df['year'] >= year_range[0]) & 
+        (df['year'] <= year_range[1])
+    ]
+
+    st.markdown("---")
+
+    # Single-screen: Tier Prices
+    st.header("Tier Prices")
+
+    # In-section position filter
+    positions_in_period = sorted(year_filtered_df['position'].unique())
+    selected_positions = st.multiselect(
+        "Positions",
+        options=positions_in_period,
+        default=positions_in_period,
+    )
+
+    # Apply position filter
+    filtered_df = year_filtered_df[year_filtered_df['position'].isin(selected_positions)]
+
+    if filtered_df.empty:
+        st.warning("No data available for selected filters.")
+    else:
+        # Limit by tier depth and proceed
+        filtered_for_tiers = filtered_df[filtered_df['position_rank'] <= max_tier]
+        view_df = filtered_for_tiers
+
+        # Summary table
+        st.subheader(f"Summary ({year_range[0]}-{year_range[1]})")
+        summary = (
+            view_df.groupby('tier_label')['auction_value_dollars']
+            .agg(mean='mean', min='min', max='max', years='count')
+            .reset_index()
+        )
+        # Natural sort tiers like QB1, QB2, ..., QB10 correctly
+        def parse_tier(tier_label: str) -> tuple:
+            match = re.match(r"^([A-Za-z]+)(\d+)$", tier_label)
+            if match:
+                return (match.group(1), int(match.group(2)))
+            return (tier_label, 0)
+
+        summary = summary.sort_values(by='tier_label', key=lambda s: s.map(parse_tier))
+
+        summary_display = summary.copy()
+        summary_display['Average ($)'] = summary_display['mean'].round(0).map(lambda x: f"${x:,.0f}")
+        summary_display['Min ($)'] = summary_display['min'].round(0).map(lambda x: f"${x:,.0f}")
+        summary_display['Max ($)'] = summary_display['max'].round(0).map(lambda x: f"${x:,.0f}")
+        summary_display = summary_display[['tier_label', 'Average ($)', 'Min ($)', 'Max ($)', 'years']]
+        summary_display.columns = ['Tier', 'Average ($)', 'Min ($)', 'Max ($)', 'Years']
+        st.dataframe(summary_display, use_container_width=True, hide_index=True)
+
+        # Averages bar chart
+        st.subheader("Average by Tier")
+        chart_df = summary[['tier_label', 'mean']].copy()
+        fig = px.bar(
+            chart_df,
+            x='tier_label',
+            y='mean',
+            labels={'tier_label': 'Tier', 'mean': 'Average ($)'},
+            color='mean',
+            color_continuous_scale='Blues',
+            height=420
+        )
+        fig.update_layout(showlegend=False)
+        fig.update_yaxes(tickformat='$,.0f')
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Year-by-year table
+        st.subheader("Year-by-Year (Average if multiple)")
+        yby = (
+            view_df.pivot_table(index='year', columns='tier_label', values='auction_value_dollars', aggfunc='mean')
+            .loc[range(year_range[0], year_range[1] + 1)]
+            .round(2)
+        )
+        st.dataframe(yby, use_container_width=True)
     
     # Footer
     st.markdown("---")
+    # Compute footer metadata
+    latest_year = int(df['year'].max()) if not df.empty else 'N/A'
+    # Get file modified date for DB or CSV
+    data_file = os.path.join(os.path.dirname(__file__), 'fantasy_auction.db')
+    if not os.path.exists(data_file):
+        data_file = os.path.join(os.path.dirname(__file__), 'data', 'WSOFF through 2024 Raw Data.csv')
+    last_updated = ''
+    if os.path.exists(data_file):
+        try:
+            ts = os.path.getmtime(data_file)
+            from datetime import datetime
+            last_updated = datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+        except Exception:
+            last_updated = 'N/A'
+    else:
+        last_updated = 'N/A'
+
     st.markdown(
         "**Blue Steele Fantasy Analysis** | "
-        "**Data Source:** Fantasy auction results from 2014-2024 | "
-        "**Built with:** Streamlit & Plotly | "
-        f"**Last Updated:** {df['year'].max() if not df.empty else 'N/A'}"
+        f"**Data Through:** {latest_year} | "
+        f"**Last Updated:** {last_updated} | "
+        f"**Version:** {VERSION}"
     )
 
 
