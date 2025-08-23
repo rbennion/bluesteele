@@ -4,7 +4,7 @@ A fantasy football auction analysis dashboard built with Streamlit, inspired by 
 
 ## 🚀 Live Demo
 
-**[View Dashboard](https://your-app-name.streamlit.app)** *(Update this URL after deployment)*
+**[View Dashboard](https://bluesteele.streamlit.app)** *(Live once deployed)*
 
 ## 📊 Features
 
