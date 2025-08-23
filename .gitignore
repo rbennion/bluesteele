@@ -29,8 +29,9 @@ env/
 ENV/
 
 # Database
+# Track the production DB for Streamlit Cloud
+!fantasy_auction.db
 *.db
-fantasy_auction.db
 
 # IDE
 .vscode/
