@@ -551,7 +551,6 @@ def main():
         selected_years = st.multiselect(
             "Years",
             options=years,
-            default=st.session_state.selected_years,
             key="selected_years",
             help="Choose any years to include"
         )
