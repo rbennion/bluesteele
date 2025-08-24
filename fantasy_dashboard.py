@@ -537,9 +537,11 @@ def main():
         return
     
     # In-page controls (top control bar)
-    years = sorted(df['year'].unique())
-    if 'selected_years' not in st.session_state:
-        st.session_state.selected_years = years[-5:] if len(years) >= 5 else years
+    # Build years list as plain ints and set default to last 5
+    years = sorted([int(y) for y in df['year'].unique().tolist()])
+    default_years = years[-5:] if len(years) >= 5 else years
+    if 'selected_years' not in st.session_state or not st.session_state.selected_years:
+        st.session_state.selected_years = default_years
 
     positions = sorted(df['position'].unique())
 
