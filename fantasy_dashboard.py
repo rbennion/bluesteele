@@ -538,52 +538,73 @@ def main():
     
     # In-page controls (top control bar)
     years = sorted(df['year'].unique())
-    if 'year_range' not in st.session_state:
-        st.session_state.year_range = (min(years), max(years))
+    if 'selected_years' not in st.session_state:
+        st.session_state.selected_years = years[-5:] if len(years) >= 5 else years
 
     positions = sorted(df['position'].unique())
 
     st.markdown("### 📊 Controls")
-    c1, c2, c3, c4 = st.columns([1.6, 1.4, 1.4, 1.2])
+    c_years, c_positions, c_tiers = st.columns([1.2, 1.2, 1.6])
 
-    with c1:
-        st.write("Year Range")
-        year_range = st.slider(
-            "",
-            min_value=min(years),
-            max_value=max(years),
-            value=st.session_state.year_range,
-            step=1,
-            label_visibility="collapsed"
+    # Years selector
+    with c_years:
+        selected_years = st.multiselect(
+            "Years",
+            options=years,
+            default=st.session_state.selected_years,
+            key="selected_years",
+            help="Choose any years to include"
         )
-        st.session_state.year_range = year_range
-    with c2:
-        st.write("Quick Presets")
-        p1, p2 = st.columns(2)
-        if p1.button("Recent 3"):
-            st.session_state.year_range = (max(years) - 2, max(years))
-            year_range = st.session_state.year_range
-        if p2.button("Recent 5"):
-            st.session_state.year_range = (max(years) - 4, max(years))
-            year_range = st.session_state.year_range
-    with c3:
-        st.write("More Presets")
-        p3, p4 = st.columns(2)
-        if p3.button("All"):
-            st.session_state.year_range = (min(years), max(years))
-            year_range = st.session_state.year_range
-        if p4.button("2020+"):
-            st.session_state.year_range = (2020, max(years))
-            year_range = st.session_state.year_range
-    with c4:
-        max_tier = st.slider("Max Tier", 1, 15, 5)
 
-    st.caption(f"Analyzing: {year_range[0]}–{year_range[1]} ({year_range[1] - year_range[0] + 1} years)")
+    if not selected_years:
+        st.info("Select at least one year to view results.")
+        return
 
-    # Filter by year only for now; choose positions in-section
+    # Positions selector
+    with c_positions:
+        selected_positions = st.multiselect(
+            "Positions",
+            options=positions,
+            default=positions,
+            key="selected_positions"
+        )
+
+    # Build available tier numbers (position_rank) based on selected years and positions
+    filtered_for_controls = df[
+        (df['year'].isin(selected_years)) &
+        (df['position'].isin(selected_positions))
+    ]
+    available_ranks = sorted(filtered_for_controls['position_rank'].dropna().unique().tolist())
+    # Cap the number of tiers shown to a reasonable maximum
+    TIER_CAP = 15
+    available_ranks = [r for r in available_ranks if r <= TIER_CAP]
+    if not available_ranks:
+        available_ranks = list(range(1, TIER_CAP + 1))
+
+    # Tier selector (single dropdown)
+    with c_tiers:
+        if available_ranks:
+            selected_rank = st.selectbox(
+                "Max Displayed Tiers",
+                options=available_ranks,
+                index=0,
+                key="selected_tier",
+                help="Choose a tier number"
+            )
+        else:
+            selected_rank = None
+
+    if not selected_positions or selected_rank is None:
+        st.info("Select at least one position and tier to view results.")
+        return
+
+    st.caption(f"Analyzing: {min(selected_years)}–{max(selected_years)} ({len(selected_years)} years)")
+
+    # Filter by selected years, positions, and tiers
     year_filtered_df = df[
-        (df['year'] >= year_range[0]) & 
-        (df['year'] <= year_range[1])
+        (df['year'].isin(selected_years)) &
+        (df['position'].isin(selected_positions)) &
+        (df['position_rank'] <= selected_rank)
     ]
 
     st.markdown("---")
@@ -591,26 +612,13 @@ def main():
     # Single-screen: Tier Prices
     st.header("Tier Prices")
 
-    # In-section position filter
-    positions_in_period = sorted(year_filtered_df['position'].unique())
-    selected_positions = st.multiselect(
-        "Positions",
-        options=positions_in_period,
-        default=positions_in_period,
-    )
-
-    # Apply position filter
-    filtered_df = year_filtered_df[year_filtered_df['position'].isin(selected_positions)]
-
-    if filtered_df.empty:
+    if year_filtered_df.empty:
         st.warning("No data available for selected filters.")
     else:
-        # Limit by tier depth and proceed
-        filtered_for_tiers = filtered_df[filtered_df['position_rank'] <= max_tier]
-        view_df = filtered_for_tiers
+        view_df = year_filtered_df
 
         # Summary table
-        st.subheader(f"Summary ({year_range[0]}-{year_range[1]})")
+        st.subheader(f"Summary ({min(selected_years)}-{max(selected_years)})")
         summary = (
             view_df.groupby('tier_label')['auction_value_dollars']
             .agg(mean='mean', min='min', max='max', years='count')
@@ -653,7 +661,7 @@ def main():
         st.subheader("Year-by-Year (Average if multiple)")
         yby = (
             view_df.pivot_table(index='year', columns='tier_label', values='auction_value_dollars', aggfunc='mean')
-            .loc[range(year_range[0], year_range[1] + 1)]
+            .loc[selected_years]
             .round(2)
         )
         st.dataframe(yby, use_container_width=True)
