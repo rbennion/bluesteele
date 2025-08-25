@@ -21,7 +21,7 @@ import re
 from typing import Dict, List, Tuple
 
 # App version
-VERSION = "1.3"
+VERSION = "1.4"
 
 
 # Page configuration
@@ -577,7 +577,7 @@ def main():
     ]
     available_ranks = sorted(filtered_for_controls['position_rank'].dropna().unique().tolist())
     # Cap the number of tiers shown to a reasonable maximum
-    TIER_CAP = 15
+    TIER_CAP = 60
     available_ranks = [r for r in available_ranks if r <= TIER_CAP]
     if not available_ranks:
         available_ranks = list(range(1, TIER_CAP + 1))
@@ -585,10 +585,13 @@ def main():
     # Tier selector (single dropdown)
     with c_tiers:
         if available_ranks:
+            # Initialize default to 5 (or max available) the first time
+            default_rank = min(5, max(available_ranks))
+            if 'selected_tier' not in st.session_state or st.session_state.selected_tier not in available_ranks:
+                st.session_state.selected_tier = default_rank
             selected_rank = st.selectbox(
                 "Max Displayed Tiers",
                 options=available_ranks,
-                index=0,
                 key="selected_tier",
                 help="Choose a tier number"
             )
@@ -665,6 +668,16 @@ def main():
             .loc[selected_years]
             .round(2)
         )
+        # Natural sort tier columns like QB1, QB2, ..., QB10 with fixed position order
+        pos_order = {"QB": 0, "RB": 1, "WR": 2, "TE": 3, "Def": 4, "TMPK": 5}
+        def tier_sort_key(label: str):
+            m = re.match(r"^([A-Za-z]+)(\d+)$", str(label))
+            if m:
+                return (pos_order.get(m.group(1), 99), int(m.group(2)))
+            # Fallback keep unknowns at end
+            return (99, str(label))
+        sorted_cols = sorted(list(yby.columns), key=tier_sort_key)
+        yby = yby.reindex(columns=sorted_cols)
         st.dataframe(yby, use_container_width=True)
     
     # Footer
